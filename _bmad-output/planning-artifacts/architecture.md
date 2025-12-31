@@ -460,6 +460,151 @@ import { BookingCard } from '@/components/bookings';
 | `any` type | Proper TypeScript types |
 | Console.log in production | Structured logging |
 
+### UX Enhancement Patterns
+
+**Patterns for UX features mentioned in UX Design Specification:**
+
+| Pattern | Implementation | Library/Approach |
+|---------|---------------|------------------|
+| **Dark Mode** | Tailwind CSS dark mode | `class="dark"` with `prefers-color-scheme` media query detection |
+| **Swipe Gestures** | Native touch events | `onTouchStart`, `onTouchMove`, `onTouchEnd` for swipe-to-mark-paid |
+| **Confetti Animation** | Optional delight feature | `canvas-confetti` (lightweight, 3KB) for first invoice success |
+
+**Dark Mode Implementation:**
+```typescript
+// lib/theme.ts
+export function initTheme() {
+  if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    document.documentElement.classList.add('dark');
+  }
+}
+
+// Call in root layout
+useEffect(() => {
+  initTheme();
+}, []);
+```
+
+**Configuration in tailwind.config.ts:**
+```typescript
+module.exports = {
+  darkMode: 'class', // Enable class-based dark mode
+  // ... rest of config
+}
+```
+
+**Swipe Gesture Implementation:**
+```typescript
+// components/invoices/InvoiceRow.tsx
+const handleSwipe = (direction: 'left' | 'right') => {
+  if (direction === 'right') markAsPaid();
+};
+
+// Usage with native touch events
+let touchStartX = 0;
+let touchEndX = 0;
+
+const handleTouchStart = (e: TouchEvent) => {
+  touchStartX = e.changedTouches[0].screenX;
+};
+
+const handleTouchEnd = (e: TouchEvent) => {
+  touchEndX = e.changedTouches[0].screenX;
+  if (touchEndX - touchStartX > 50) handleSwipe('right');
+  if (touchStartX - touchEndX > 50) handleSwipe('left');
+};
+```
+
+**Confetti Animation Implementation:**
+```typescript
+// lib/confetti.ts
+import confetti from 'canvas-confetti';
+
+export function celebrateFirstInvoice() {
+  confetti({
+    particleCount: 100,
+    spread: 70,
+    origin: { y: 0.6 }
+  });
+}
+
+// Usage in invoice generation success callback
+if (isFirstInvoice) celebrateFirstInvoice();
+```
+
+### Audit Logging Pattern
+
+**Strategy:** Prisma Middleware (Centralized)
+
+**Rationale:**
+- NFR-S5 requires audit logging with 7-year retention for KATA compliance
+- Centralized middleware ensures all invoice/payment/booking changes are logged automatically
+- Single implementation point prevents inconsistent logging across stories
+
+**Implementation:**
+```typescript
+// lib/audit.ts
+import { Prisma } from '@prisma/client';
+
+export const auditMiddleware: Prisma.Middleware = async (params, next) => {
+  const result = await next(params);
+
+  // Log invoice/payment/booking changes for KATA compliance
+  if (['Invoice', 'Payment', 'Booking'].includes(params.model ?? '')) {
+    if (['create', 'update', 'delete'].includes(params.action)) {
+      const prisma = getPrismaClient(getCurrentTenantId());
+      await prisma.auditLog.create({
+        data: {
+          model: params.model,
+          action: params.action,
+          recordId: result.id,
+          userId: getCurrentUserId(),
+          timestamp: new Date(),
+          changes: JSON.stringify(params.args),
+          tenantId: getCurrentTenantId(),
+        },
+      });
+    }
+  }
+
+  return result;
+};
+
+// Register in lib/prisma.ts
+export function getPrismaClient(tenantId: string): PrismaClient {
+  if (!prismaClients.has(tenantId)) {
+    const client = new PrismaClient({
+      datasources: { db: { url: getTenantConnectionString(tenantId) } }
+    });
+    client.$use(auditMiddleware); // Register audit middleware
+    prismaClients.set(tenantId, client);
+  }
+  return prismaClients.get(tenantId)!;
+}
+```
+
+**Database Schema (Prisma):**
+```prisma
+model AuditLog {
+  id        String   @id @default(uuid())
+  model     String   @map("model_name")
+  action    String   // 'create', 'update', 'delete'
+  recordId  String   @map("record_id")
+  userId    String   @map("user_id")
+  timestamp DateTime @default(now())
+  changes   String   @db.Text // JSON string
+  tenantId  String   @map("tenant_id")
+
+  @@map("audit_logs")
+  @@index([tenantId, timestamp])
+}
+```
+
+**Retention Policy:**
+- 7 years minimum (KATA compliance requirement)
+- Automated cleanup job runs annually to delete logs older than 7 years
+- Logs stored per-tenant database for data isolation
+
 ## Project Structure & Boundaries
 
 ### Complete Project Directory Structure
