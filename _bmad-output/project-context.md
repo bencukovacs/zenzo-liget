@@ -52,6 +52,7 @@ _This file contains critical rules and patterns that AI agents must follow when 
 
 - **Strict mode is mandatory** - never use `any` type; use `unknown` for truly unknown types
 - **Use named exports** - avoid `export default`; use `export function X` or `export const X`
+  - **EXCEPTION:** Next.js requires `export default` for special files: `page.tsx`, `layout.tsx`, `error.tsx`, `loading.tsx`, `not-found.tsx`, `template.tsx`
 - **Absolute imports only** - use `@/` alias for all imports (e.g., `@/components/bookings`)
 - **Zod for runtime validation** - all API inputs must be validated with Zod schemas from `@/schemas/`
 - **Infer types from Zod** - use `z.infer<typeof schema>` instead of duplicating type definitions
